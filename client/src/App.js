@@ -4,7 +4,7 @@ import axios from "axios";
 import "./index.css"; // Đảm bảo bạn đã có Tailwind hoặc CSS cơ bản
 
 // Cấu hình URL Backend (Khi deploy lên Render thì thay localhost bằng link Render)
-const API_BASE_URL = "https://baithi2.onrender.com"; 
+const API_BASE_URL = "https://baithi2-1.onrender.com"; 
 
 // --- COMPONENT 1: UPLOAD (TRANG CHỦ) ---
 const UploadScreen = () => {
