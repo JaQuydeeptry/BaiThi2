@@ -1,82 +1,120 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
-const streamifier = require('streamifier');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
-
-// Cấu hình cho phép mọi nơi truy cập (để Netlify kết nối được)
-app.use(cors({ origin: "*" }));
+app.use(cors());
 app.use(express.json());
 
-// 1. CẤU HÌNH CLOUDINARY (Key của bạn)
-cloudinary.config({
-    cloud_name: 'dzfoxtfo1',
-    api_key: '388388424982321',
-    api_secret: 'BCvJdLujuj56SMhDcbiY_STtawA'
-});
-
-// 2. KẾT NỐI MONGODB (Dùng lại của bài trước, đổi tên DB thành musicapp)
-const MONGO_URL = "mongodb+srv://bilongdaica12_db_user:anhemtot12@cluster0.2fvaipc.mongodb.net/musicapp?retryWrites=true&w=majority&appName=Cluster0";
-
-mongoose.connect(MONGO_URL, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
+// --- 1. KẾT NỐI MONGODB ---
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
 })
-    .then(() => console.log("✅ MongoDB Connected"))
-    .catch(err => console.log("❌ MongoDB Error:", err));
+.then(() => console.log('✅ Connected to MongoDB'))
+.catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-// Schema lưu file
+// --- 2. CẤU HÌNH CLOUDINARY ---
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// --- 3. MODEL FILE ---
 const FileSchema = new mongoose.Schema({
-    filename: String,
-    size: Number,
-    url: String, 
-    format: String,
-    createdAt: { type: Date, default: Date.now }
+  filename: String,
+  path: String,
+  size: Number,
+  format: String,
+  publicId: String,
+}, { timestamps: true });
+
+const FileModel = mongoose.model('File', FileSchema);
+
+// --- 4. CẤU HÌNH STORAGE (MULTER) ---
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'music-share-app',
+    resource_type: 'auto',
+    allowed_formats: ['mp3', 'wav', 'flac'],
+  },
 });
-const FileModel = mongoose.model('MusicFile', FileSchema);
+const upload = multer({ storage: storage });
 
-// Cấu hình Multer (Upload)
-const upload = multer({ 
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 } // Tối đa 10MB
-});
+// --- 5. ROUTES ---
 
-// --- API ROUTES ---
-
-// Upload File
-app.post('/api/upload', upload.single('file'), (req, res) => {
-    if (!req.file) return res.status(400).send("No file uploaded");
-
-    let stream = cloudinary.uploader.upload_stream(
-        { resource_type: 'video', format: 'mp3' },
-        async (error, result) => {
-            if (error) return res.status(500).json(error);
-            
-            const newFile = new FileModel({
-                filename: req.file.originalname,
-                size: req.file.size,
-                url: result.secure_url,
-                format: result.format
-            });
-            await newFile.save();
-            res.json(newFile);
-        }
-    );
-    streamifier.createReadStream(req.file.buffer).pipe(stream);
+// Route kiểm tra Server sống hay chết (Tránh lỗi Cannot GET /)
+app.get('/', (req, res) => {
+  res.send('Server Music Sharing is RUNNING! 🚀');
 });
 
-// Lấy thông tin file
-app.get('/api/files/:id', async (req, res) => {
-    try {
-        const file = await FileModel.findById(req.params.id);
-        if (!file) return res.status(404).json("File not found");
-        res.json(file);
-    } catch (error) {
-        res.status(500).json(error);
+// API Upload
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  try {
+    console.log("📥 Receiving file upload request..."); // Log để kiểm tra trên Render
+    
+    if (!req.file) {
+      console.log("❌ No file received");
+      return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    // Lưu vào DB
+    const newFile = new FileModel({
+      filename: req.file.originalname,
+      path: req.file.path,
+      size: req.file.size,
+      format: req.file.mimetype,
+      publicId: req.file.filename,
+    });
+
+    const savedFile = await newFile.save();
+    console.log("✅ File saved to DB with ID:", savedFile._id);
+
+    // Trả về kết quả JSON chuẩn
+    res.json({ 
+      success: true, 
+      fileId: savedFile._id, 
+      downloadUrl: savedFile.path 
+    });
+
+  } catch (error) {
+    console.error("❌ Upload Error:", error);
+    res.status(500).json({ error: 'Upload failed', details: error.message });
+  }
+});
+
+// API Lấy thông tin file
+app.get('/api/file/:id', async (req, res) => {
+  try {
+    const file = await FileModel.findById(req.params.id);
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    res.json(file);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// API Download
+app.get('/api/download/:id', async (req, res) => {
+  try {
+    const file = await FileModel.findById(req.params.id);
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    
+    const downloadUrl = cloudinary.url(file.publicId, { 
+      resource_type: 'video', 
+      flags: 'attachment' 
+    });
+    
+    res.json({ url: downloadUrl || file.path });
+  } catch (error) {
+    res.status(500).json({ error: 'Download failed' });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
