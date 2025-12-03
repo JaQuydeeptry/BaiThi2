@@ -1,139 +1,182 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter as Router, Routes, Route, useParams } from 'react-router-dom';
-import { useDropzone } from 'react-dropzone';
-import axios from 'axios';
-import { UploadCloud, FileAudio, Check, Copy, Download } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, useParams, useNavigate } from "react-router-dom";
+import axios from "axios";
+import "./index.css"; // Đảm bảo bạn đã có Tailwind hoặc CSS cơ bản
 
-// ⚠️ SAU KHI DEPLOY RENDER XONG, BẠN COPY LINK DÁN VÀO ĐÂY NHÉ
-// Ví dụ: const API_URL = "https://music-app-xyz.onrender.com";
-// Dán chính xác link Render của bạn vào đây
-const API_URL = "https://music-server-vv3e.onrender.com"; 
+// Cấu hình URL Backend (Khi deploy lên Render thì thay localhost bằng link Render)
+const API_BASE_URL = "https://baithi2.onrender.com"; 
 
-// --- TRANG UPLOAD ---
-const UploadPage = () => {
+// --- COMPONENT 1: UPLOAD (TRANG CHỦ) ---
+const UploadScreen = () => {
+  const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadedData, setUploadedData] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [shareLink, setShareLink] = useState("");
+  const [error, setError] = useState("");
 
-  const onDrop = useCallback(acceptedFiles => {
-    const selected = acceptedFiles[0];
-    if (selected && selected.type === 'audio/mpeg') {
-      handleUpload(selected);
+  const handleFileChange = (e) => {
+    const selected = e.target.files[0];
+    if (selected && selected.type.includes("audio")) {
+      setFile(selected);
+      setError("");
     } else {
-      alert("Only MP3 files supported");
+      setError("Please select a valid MP3/Audio file.");
+      setFile(null);
     }
-  }, []);
+  };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
-    onDrop, 
-    accept: {'audio/mpeg': ['.mp3']},
-    multiple: false
-  });
-
-  const handleUpload = async (fileToUpload) => {
+  const handleUpload = async () => {
+    if (!file) return;
     setUploading(true);
     const formData = new FormData();
-    formData.append('file', fileToUpload);
+    formData.append("file", file);
 
     try {
-      const res = await axios.post(`${API_URL}/api/upload`, formData);
-      setUploadedData(res.data);
-    } catch (error) {
-      console.error(error);
-      alert("Upload failed! Check server.");
+      const res = await axios.post(`${API_BASE_URL}/api/upload`, formData);
+      // Tạo link chia sẻ trỏ về trang Download của Frontend
+      const link = `${window.location.origin}/share/${res.data.fileId}`;
+      setShareLink(link);
+    } catch (err) {
+      setError("Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
   };
 
-  const copyLink = () => {
-    const link = `${window.location.origin}/download/${uploadedData._id}`;
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans text-slate-700">
-      <h1 className="text-2xl font-bold mb-8 text-slate-800">Music Sharing App</h1>
-      
-      {!uploadedData ? (
-        <div {...getRootProps()} className={`w-full max-w-md p-12 border-2 border-dashed rounded-xl flex flex-col items-center justify-center cursor-pointer bg-white ${isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300'}`}>
-          <input {...getInputProps()} />
-          {uploading ? (
-            <p className="text-indigo-600 font-bold">Uploading...</p>
-          ) : (
-            <>
-              <UploadCloud size={64} className="text-slate-400 mb-4" />
-              <p className="font-bold">Click to upload or drag and drop</p>
-              <p className="text-sm text-slate-500">Only MP3 files supported</p>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="w-full max-w-md bg-white rounded-xl shadow-lg border overflow-hidden">
-            <div className="bg-[#3b4252] p-5 flex items-center gap-4 text-white">
-               <FileAudio size={40} />
-               <div>
-                 <p className="font-semibold w-64 truncate">{uploadedData.filename}</p>
-                 <p className="text-sm opacity-80">{(uploadedData.size / 1024 / 1024).toFixed(2)} MB</p>
-               </div>
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md text-center">
+        <h1 className="text-2xl font-bold mb-6 text-gray-800">Music Sharing App</h1>
+        
+        {!shareLink ? (
+          <>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 mb-4 hover:bg-gray-50 transition">
+              <input 
+                type="file" 
+                onChange={handleFileChange} 
+                className="hidden" 
+                id="fileInput" 
+                accept="audio/*"
+              />
+              <label htmlFor="fileInput" className="cursor-pointer flex flex-col items-center">
+                <span className="text-4xl mb-2">☁️</span>
+                <span className="text-gray-600 font-medium">
+                  {file ? file.name : "Click to Upload MP3"}
+                </span>
+                <span className="text-xs text-gray-400 mt-2">Supports MP3, WAV</span>
+              </label>
             </div>
-            <div className="p-8 text-center">
-              <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><Check className="text-green-600" /></div>
-              <p className="font-bold text-lg">File uploaded successfully!</p>
-              <div className="flex gap-2 my-4">
-                <input readOnly value={`${window.location.origin}/download/${uploadedData._id}`} className="flex-1 border rounded px-3 text-sm" />
-                <button onClick={copyLink} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold">{copied ? 'Copied' : 'Copy'}</button>
+
+            {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+
+            <button
+              onClick={handleUpload}
+              disabled={!file || uploading}
+              className={`w-full py-2 px-4 rounded text-white font-bold transition ${
+                !file || uploading ? "bg-gray-400" : "bg-green-500 hover:bg-green-600"
+              }`}
+            >
+              {uploading ? "Uploading..." : "Upload"}
+            </button>
+          </>
+        ) : (
+          <div className="text-left">
+            <div className="bg-green-50 border border-green-200 p-4 rounded mb-4">
+              <p className="text-green-800 font-semibold text-center mb-2">Upload Successful! 🎉</p>
+              <p className="text-sm text-gray-600 mb-1">Share this link:</p>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={shareLink} 
+                  readOnly 
+                  className="w-full text-xs p-2 border rounded bg-white select-all"
+                />
+                <button 
+                  onClick={() => navigator.clipboard.writeText(shareLink)}
+                  className="bg-gray-800 text-white text-xs px-3 rounded hover:bg-gray-700"
+                >
+                  Copy
+                </button>
               </div>
-              <button onClick={() => setUploadedData(null)} className="text-indigo-600 hover:underline">Upload New File</button>
             </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// --- TRANG DOWNLOAD ---
-const DownloadPage = () => {
-  const { id } = useParams();
-  const [fileData, setFileData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    axios.get(`${API_URL}/api/files/${id}`)
-      .then(res => setFileData(res.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  const handleDownload = () => window.open(fileData.url, '_blank');
-
-  if (loading) return <div>Loading...</div>;
-  if (!fileData) return <div>File not found.</div>;
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg border overflow-hidden">
-        <div className="p-6 text-center border-b"><h2 className="text-xl font-bold">Download File</h2></div>
-        <div className="p-8 text-center">
-           <div className="bg-[#3b4252] p-5 rounded-xl flex items-center gap-4 text-white mb-8">
-               <FileAudio size={40} />
-               <div className="text-left"><p className="font-semibold w-56 truncate">{fileData.filename}</p></div>
-           </div>
-           <button onClick={handleDownload} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold flex justify-center gap-2"><Download /> Download</button>
-        </div>
+            <button 
+              onClick={() => { setShareLink(""); setFile(null); }}
+              className="w-full text-blue-500 text-sm hover:underline"
+            >
+              Upload another file
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
+// --- COMPONENT 2: DOWNLOAD (TRANG CHIA SẺ) ---
+const DownloadScreen = () => {
+  const { id } = useParams();
+  const [fileData, setFileData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchFile = async () => {
+      try {
+        const res = await axios.get(`${API_BASE_URL}/api/file/${id}`);
+        setFileData(res.data);
+      } catch (err) {
+        console.error("Error fetching file");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchFile();
+  }, [id]);
+
+  const handleDownload = async () => {
+    try {
+      // Lấy link force download từ server
+      const res = await axios.get(`${API_BASE_URL}/api/download/${id}`);
+      window.open(res.data.url, "_blank");
+    } catch (error) {
+      alert("Error starting download");
+    }
+  };
+
+  if (loading) return <div className="text-center mt-20">Loading file info...</div>;
+  if (!fileData) return <div className="text-center mt-20 text-red-500">File not found or expired.</div>;
+
+  return (
+    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
+        <div className="bg-gray-100 p-6 rounded-lg mb-6">
+          <span className="text-5xl mb-4 block">🎵</span>
+          <h2 className="text-xl font-bold text-gray-800 break-words">{fileData.filename}</h2>
+          <p className="text-gray-500 text-sm mt-2">
+            Size: {(fileData.size / 1024 / 1024).toFixed(2)} MB
+          </p>
+        </div>
+
+        <p className="text-gray-600 mb-6 text-sm">
+          Your file is ready. Click the button below to download.
+        </p>
+
+        <button
+          onClick={handleDownload}
+          className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded transition flex items-center justify-center gap-2"
+        >
+          <span>Download File</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- MAIN APP COMPONENT ---
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<UploadPage />} />
-        <Route path="/download/:id" element={<DownloadPage />} />
+        <Route path="/" element={<UploadScreen />} />
+        <Route path="/share/:id" element={<DownloadScreen />} />
       </Routes>
     </Router>
   );
